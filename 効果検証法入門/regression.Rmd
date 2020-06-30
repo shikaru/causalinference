@@ -1,0 +1,282 @@
+---
+title: "regression"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+biased_reg<-lm(data=biased_date,formula = spend~treatment+history)
+summary(biased_reg)
+```
+```{r}
+library(broom)
+tidy(biased_reg)
+```
+```{r}
+rct_reg<-lm(data=male_df,formula = spend~treatment)
+rct_reg_coef<-tidy(rct_reg)
+nonrct_reg<-lm(data=biased_date,formula=spend~treatment)
+nonrct_reg_coef<-tidy(nonrct_reg)
+```
+
+```{r}
+rct_reg_coef
+```
+```{r}
+nonrct_reg_coef
+```
+
+```{r}
+nonrct_mreg<-lm(spend~treatment+recency+channel+history,data=biased_date)
+tidy(nonrct_mreg)
+```
+```{r}
+formula_vec<-c(spend~treatment+recency+channel,
+               spend~treatment+recency+channel+history,
+               history~treatment+channel+recency)
+names(formula_vec)<-paste("reg",LETTERS[1:3],sep="_")
+formula_vec
+models<-formula_vec%>%
+  enframe(name="model_index",value="formula")
+models
+df_models<-models%>%
+  mutate(model=map(.x=formula,.f=lm,data=biased_date))%>%
+  mutate(lm_result=map(.x=model,.f=tidy))
+df_models
+df_models$lm_result
+df_results<-df_models%>%
+  mutate(formula=as.character(formula))%>%
+  select(formula,model_index,lm_result)%>%
+  unnest(cols=c(lm_result))
+df_results
+
+treatment_corf<-df_results%>%
+  filter(term=="treatment")%>%
+  pull(estimate)
+treatment_corf
+history_coef<-df_results%>%
+  filter(model_index=="reg_B",
+         term=="history")%>%
+  pull(estimate)
+history_coef
+OVB<-history_coef*treatment_corf[3]
+coef_gap<-treatment_corf[1]-treatment_corf[2]
+
+OVB
+coef_gap
+```
+```{r}
+model1<-lm(treatment~history+recency+channel,data=biased_date)
+df<-tidy(model1)
+df
+hisory<-df%>%
+  filter(term=="history")%>%
+  pull(estimate)
+  
+history
+```
+```{r}
+cor_visit_treatment<-lm(data=biased_date,formula = treatment~visit+channel+recency+history)%>%
+  tidy()
+
+bbad_controol_reg<-lm(data=biased_date,formula = spend~treatment+channel+recency+history+visit)%>%
+  tidy()
+
+```
+```{r}
+library(devtools)
+load("data/vouchers.rda")
+vouchers
+```
+```{r}
+formula_x_base<-"VOUCH0"
+
+
+formula_x_covariate<-"SVY+HSVISIT+AGE+STRATA1+STRATA2+STRATA3+STRATA4+STRATA5+STRATA6+STRATAMS+D1993+D1995+D1997+DMONTH1+DMONTH2+DMONTH3+
+DMONTH4+DMONTH5+DMONTH6+DMONTH7+DMONTH8+DMONTH9+DMONTH10+DMONTH11+DMONTH12+SEX2"
+formula_y<-c("TOTSCYRS","INSCHL","PRSCH_C","USNGSCH","PRSCHA_1","FINISH6","FINISH7","FINISH8","REPT6","REPT","NREPT",
+             "MARRIED","HASCHILD","HOURSUM","WORKING3")
+
+
+
+
+base_reg_formula<-paste(formula_y,"~",formula_x_base)
+base_reg_formula
+names(base_reg_formula)<-paste(formula_y,"covariate",sep="_")
+base_reg_formula
+
+covariate_reg_formula<-paste(formula_y,"~",formula_x_base,"+",formula_x_covariate)
+names(covariate_reg_formula)<-paste(formula_y,"base","_")
+covariate_reg_formula
+
+table_formula<-c(base_reg_formula,covariate_reg_formula)
+table_formula
+
+models<-table_formula%>%
+  enframe(name="model_index",value="formula")
+models
+
+regression_data<-vouchers%>%
+  filter(TAB3SMPL==1,BOG95SMP==1)
+
+df_models<-models%>%
+  mutate(model=map(.x=formula,.f=lm,data=regression_data))%>%
+  mutate(lm_result=map(.x=model,.f=tidy))
+```
+```{r}
+df_models
+df_results<-df_models%>%
+  mutate(formula=as.character(formula))%>%
+  select(formula,model_index,lm_result)%>%
+  unnest(cols=c(lm_result))
+df_results
+```
+```{r}
+using_voucher_results<-df_results%>%
+  filter(term=="VOUCH0",str_detect(model_index,"PRSCHA_1|USNGSCH"))%>%
+  select(model_index,term,estimate,std.error,p.value)%>%
+  arrange(model_index)
+using_voucher_results
+```
+
+```{r}
+going_private_results <- df_results %>%
+  filter(term == "VOUCH0",
+         str_detect(model_index, "PRSCH_C|INSCHL|FINISH|REPT")) %>%
+  select(model_index, term, estimate, std.error, p.value) %>%
+  arrange(model_index)
+going_private_results %>%
+  ggplot(aes(y = estimate, x = model_index)) +
+  geom_point() +
+  geom_errorbar(aes(ymax = estimate + std.error*1.96,
+                    ymin = estimate - std.error*1.96,
+                    width = 0.1)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5),
+        legend.position = "bottom",
+        plot.margin = margin(0.5,1,0.5,1, "cm"))
+
+```
+```{r}
+data_tbl4_bog95<-vouchers%>%
+  filter(BOG95SMP==1,TAB3SMPL==1,!is.na(SCYFNSH),!is.na(FINISH6),!is.na(PRSCHA_1),!is.na(REPT6),!is.na(NREPT),!is.na(INSCHL),!is.na(FINISH7),
+         !is.na(PRSCH_C),!is.na(FINISH8),!is.na(PRSCHA_2),!is.na(TOTSCYRS),!is.na(REPT)
+         )%>%
+  select(VOUCH0,SVY,HSVISIT,DJAMUNDI,PHONE,AGE,STRATA1:STRATA6,STRATAMS,DBOGOTA,D1993,D1995,D1997,DMONTH1:DMONTH12,SEX_MISS,FINISH6,FINISH7,FINISH8,REPT6,REPT,NREPT,SEX2,TOTSCYRS,MARRIED,HASCHILD,HOURSUM,WORKING3,INSCHL,PRSCH_C,USNGSCH,PRSCHA_1)
+
+data_tbl4_bog95
+regression_data<-data_tbl4_bog95%>%filter(SEX2==0)
+
+df_models<-models%>%
+  mutate(model=map(.x=formula,.f=lm,data=regression_data))%>%
+  mutate(lm_result=map(.x=model,.f=tidy))
+
+df_results_female<-df_models%>%
+  mutate(formula=as.character(formula),
+         gender="female")%>%
+  select(formula,model_index,lm_result,gender)%>%
+  unnest(col=c(lm_result))
+
+regression_data<-data_tbl4_bog95%>%filter(SEX2==1)  
+df_models<-models%>%
+  mutate(model=map(.x=formula,.f=lm,data=regression_data))%>%
+  mutate(lm_result=map(.x=model,.f=tidy))
+
+df_results_male<-df_models%>%
+  mutate(formula=as.character(formula),
+         gender="male")%>%
+  select(formula,model_index,lm_result,gender)%>%
+  unnest(col=c(lm_result))
+df_results_female
+using_voucher_results_gender <- rbind(df_results_male, df_results_female) %>%
+  filter(term == "VOUCH0", str_detect(model_index, "PRSCHA_1|USNGSCH")) %>%
+  select(gender, model_index, term, estimate, std.error, p.value) %>%
+  arrange(gender, model_index)
+
+using_voucher_results_gender_covariate<-rbind(df_results_female,df_results_male)%>%
+  filter(term=="VOUCH0",str_detect(model_index,"PRSCHA_1|USNGSCH"))%>%
+  select(gender,model_index,term,estimate,std.error,p.value)%>%
+  arrange(gender,model_index)
+
+using_voucher_results_gender
+
+using_voucher_results_gender %>%
+  ggplot(aes(y = estimate, x = model_index)) +
+  geom_point() +
+  geom_errorbar(aes(ymax = estimate + std.error*1.96,
+                    ymin = estimate - std.error*1.96,
+                    width = 0.1)) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5),
+        legend.position = "bottom",
+        plot.margin = margin(0.5,1,0.5,1, "cm")) +
+  facet_grid(gender ~ .)
+```
+```{r}
+using_voucher_results_gender_covariate
+plot<-using_voucher_results_gender_covariate%>%
+  filter(str_detect(model_index,"covariate"))%>%
+  ggplot(aes(x=model_index,y=estimate))+
+  geom_point() +
+  geom_errorbar(aes(ymax = estimate + std.error*1.96,
+                    ymin = estimate - std.error*1.96,
+                    width = 0.1)) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5),
+        legend.position = "bottom",
+        plot.margin = margin(0.5,1,0.5,1, "cm")) +
+  facet_grid(gender ~ .)
+
+using_voucher_results_gender_covariate
+plot
+```
+```{r}
+gender_private_results<-rbind(df_results_female,df_results_male)%>%
+  filter(term=="VOUCH0",
+         str_detect(model_index,"PRSCH_C|INSCHL|REPT|TOTSCYRS|FINISH"))%>%
+  select(gender, model_index, term, estimate, std.error, p.value) %>%
+  arrange(model_index)
+gender_private_results
+gender_private_results%>%
+  ggplot(aes(x=model_index,y=estimate))+
+  geom_point()+
+  geom_errorbar(aes(ymax = estimate + std.error*1.96,
+                    ymin = estimate - std.error*1.96,
+                    width = 0.1))+
+  geom_hline(yintercept =0,linetype=2)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5),
+        legend.position = "bottom",
+        plot.margin = margin(0.5,1,0.5,1, "cm")) +
+  facet_grid(gender ~ .)
+
+```
+```{r}
+working_hour_results_gender <- rbind(df_results_male, df_results_female) %>%
+  filter(term == "VOUCH0", str_detect(model_index, "HOUR")) %>%
+  select(gender, model_index, term, estimate, std.error, p.value) %>%
+  arrange(gender, model_index)
+
+df_results_female==df_results_male
+### ggplotによる可視化
+working_hour_results_gender %>%
+  
+  ggplot(aes(y = estimate, x = model_index)) +
+  geom_point() +
+  geom_errorbar(aes(ymax = estimate + std.error*1.96,
+                    ymin = estimate - std.error*1.96,
+                    width = 0.1)) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5),
+        legend.position = "bottom",
+        plot.margin = margin(0.5,1,0.5,1, "cm")) +
+  facet_grid(. ~ gender)
+```
+```{r}
+log(2)
+log(3)
+```
+

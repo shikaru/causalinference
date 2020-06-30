@@ -1,0 +1,161 @@
+---
+title: "RDD"
+output: html_document
+---
+
+```{r}
+#パッケージ、データ読み込み
+library(tidyverse)
+library(broom)
+email_data<-read_csv("http://www.minethatdata.com/Kevin_Hillstrom_MineThatData_E-MailAnalytics_DataMiningChallenge_2008.03.20.csv")
+head(email_data)
+```
+```{r}
+#データの整形
+male_data<-email_data%>%
+  filter(segment %in% c("Mens E-Mail","No E-Mail"))%>%
+  mutate(treatment=ifelse(segment=="Mens E-Mail",1,0),
+         history_log=log(history))
+```
+```{r}
+#plot
+male_data %>%
+  mutate(history_log_grp = round(history_log/0.1,0)*0.1) %>%
+  group_by(history_log_grp, segment) %>%
+  summarise(visit = mean(visit),
+            N = n()) %>%
+  filter(N > 10) %>%
+  ggplot(aes(y = visit,
+             x = history_log_grp,
+             shape = segment,
+             size = N)) +
+  geom_point() +
+  ylim(0,NA) +
+  theme_bw() +
+  xlab("log(history)") +
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.position = "bottom",
+        plot.margin = margin(1,2,1,1, "cm"))
+```
+```{r}
+#データの加工、RDDの設定
+threshold_value<-5.5
+head(male_data)
+rdd_data<-male_data%>%
+  mutate(history_log_grp=round(history_log/0.1,0)*0.1)%>%
+  filter(((history_log>threshold_value)&(segment=="Mens E-Mail"))|(history_log<=threshold_value)&(segment=="No E-Mail"))
+
+rdd_data%>%
+  group_by(segment,history_log_grp)%>%
+  mutate(visit=mean(visit),n=n())%>%
+  ggplot(aes(x=history_log_grp,y=visit,shape=segment,size=n))+
+  geom_point()+
+  geom_vline(xintercept = 5.5, linetype = 2) +
+  ylim(0,NA)+
+  theme_bw() +
+  xlab("log(history")+
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.position = "bottom",
+        plot.margin = margin(1,2,1,1, "cm"))
+```
+```{r}
+#集計
+rdd_data_table<-rdd_data%>%
+  group_by(treatment)%>%
+  summarise(count=n(),
+            visit_rate=mean(visit))
+rdd_data_table
+rdd_data
+```
+```{r}
+rdd_lm_reg<-rdd_data%>%
+  lm(data=.,formula = visit~treatment+history_log)%>%
+  tidy()%>%
+  filter(term=="treatment")
+rdd_lm_reg
+```
+```{r}
+##非線形のrdd
+install.packages("rddtools")
+library(rddtools)
+1+1
+if (!require('devtools')) install.packages('devtools')
+devtools::install_github( "bquast/rddtools" )
+```
+```{r}
+nonlinear_rdd_data<-rdd_data(y=rdd_data$visit,x=rdd_data$history_log,cutpoint=5.5)
+nonlinear_rdd_ord4<-rdd_reg_lm(rdd_object=nonlinear_rdd_data,order=4)
+```
+
+```{r}
+#nonparametric RDD
+library(rdd)
+rdd_result<-RDestimate(data=rdd_data,
+                       formula = visit~history_log,
+                       cutpoint = 5.5)
+summary(rdd_result)
+plot(rdd_result)
+```
+```{r}
+bound_list <- 2:100/100
+result_data <- data.frame()
+for(bound in bound_list){
+  out_data <- rdd_data %>%
+    filter(between(history_log, 5.5 - bound, 5.5 + bound)) %>%
+    group_by(treatment) %>%
+    summarise(count = n(),
+              visit_rate = mean(visit),
+              sd = sd(visit))
+
+  late <- out_data$visit_rate[2] - out_data$visit_rate[1]
+  N <- sum(out_data$count)
+  se <- sqrt(sum(out_data$visit_rate^2))/sqrt(N)
+  result_data <- rbind(result_data, data.frame(late, bound, N, se))
+}
+result_data %>%
+  ggplot(aes(y = late,
+             x = bound)) +
+  geom_ribbon(aes(ymax = late + 1.96*se,
+                  ymin = late - 1.96*se), fill = "grey70") +
+  geom_line() +
+  theme_bw()
+result_data
+```
+```{r}
+x<-rnorm(250)
+ts.plot(x)
+acf(x)
+```
+```{r}
+Box.test(x,lag=10,type = "Ljung")
+library(quantmod)
+getSymbols("JPNNGDP",src = "FRED")
+getSymbols("AAPL",from="2010-01-01")
+```
+```{r}
+plot(JPNNGDP) # 時系列プロット
+acf(JPNNGDP) # コレログラム
+Box.test(JPNNGDP, lag = 10, type = "Ljung") # かばん検定
+
+```
+```{r}
+jpdgp.r <- periodReturn(JPNNGDP) * 100
+plot(jpdgp.r); acf(jpdgp.r)
+Box.test(jpdgp.r, lag = 5, type = "Ljung")
+Box.test(jpdgp.r, lag = 10, type = "Ljung")
+
+```
+```{r}
+aapl <- AAPL[,6] # 修正後終値
+plot(aapl); acf(aapl)
+Box.test(aapl, lag = 10, type = "Ljung")
+
+```
+```{r}
+aapl.dr <- dailyReturn(aapl, type = 'log')
+plot(aapl.dr); acf(aapl.dr)
+Box.test(aapl.dr, lag = 5, type = "Ljung")
+Box.test(aapl.dr, lag = 10, type = "Ljung")
+Box.test(aapl.dr, lag = 20, type = "Ljung")#lag=5
+```
+

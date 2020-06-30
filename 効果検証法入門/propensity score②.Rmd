@@ -1,0 +1,96 @@
+---
+title: "propencity score②"
+output: html_document
+---
+
+```{r}
+library(haven)
+library(tidyverse)
+library(broom)
+library(MatchIt)
+library(WeightIt)
+library(cobalt)
+```
+
+```{r}
+cps1_data<-read_dta("https://users.nber.org/~rdehejia/data/cps_controls.dta")
+cps3_data<-read_dta("https://users.nber.org/~rdehejia/data/cps_controls3.dta")
+nswdw_data<-read_dta("https://users.nber.org/~rdehejia/data/nsw_dw.dta")
+glimpse(cps3_data)
+```
+
+```{r}
+cps1_nsw_data<-nswdw_data%>%
+  filter(treat==1)%>%
+  rbind(cps1_data)
+
+cps3_nsw_data<-nswdw_data%>%
+  filter(treat==1)%>%
+  rbind(cps3_data)
+```
+
+```{r}
+
+nsw_cov<-nswdw_data%>%
+  lm(data=.,
+     formula = re78~treat+re74+re75+age+education+black+hispanic+nodegree+married)
+summary(nsw_cov)
+```
+```{r}
+cps1_reg<-cps1_nsw_data%>%
+  lm(data=.,re78~treat+re74+re75+age+education+black+hispanic+nodegree+married)%>%
+  tidy()%>%
+  filter(term=="treat")
+cps1_reg
+```
+
+```{r}
+cps3_reg<-cps3_nsw_data%>%
+  lm(data=.,re78~treat+re74+re75+age+education+black+hispanic+nodegree+married)
+
+tidy(cps3_reg)
+```
+
+```{r}
+m_near<-matchit(formula=treat~age+education+black+hispanic+nodegree+married+re74+re75+I(re74^2)+I(re75^2),
+                data=cps1_nsw_data,method = "nearest")
+
+m_near5<- matchit(formula = treat ~ age + education + black + hispanic +
+                    nodegree + married + re74 + re75 + I(re74^2) + I(re75^2),
+                  data = cps1_nsw_data,
+                  method = "nearest")
+m_near5<- matchit(formula = treat ~ age + education + black + hispanic +
+                    nodegree + married + re74 + re75 + I(re74^2) + I(re75^2),
+                  data = cps1_nsw_data,
+                  method = "nearest")
+
+love.plot(m_near4,threshold =.1 )
+```
+```{r}
+matched_data<-match.data(m_near)
+glimpse(matched_data)
+```
+```{r}
+library(tibble)
+PSM_results_cps1<-matched_data%>%
+  lm(re78~treat,data=.)
+
+tidy(PSM_results_cps1)
+summary(PSM_results_cps1)
+```
+
+```{r}
+weighting<-weightit(treat~age+education+black+hispanic+nodegree+married+re74+re75+
+                      I(re74^2)+I(re75^2),
+                    data=cps1_nsw_data,
+                    method = "ps",
+                    estimand = "ATE")
+
+love.plot(weighting)
+```
+```{r}
+IPW_results<-cps1_nsw_data%>%
+  lm(data=.,formula = re78~treat,weights = weighting$weights)
+summary(IPW_results)
+```
+

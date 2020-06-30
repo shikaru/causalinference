@@ -1,0 +1,137 @@
+---
+title: "DID"
+output: html_document
+---
+
+```{r}
+log(2)
+log(2)
+
+log(5.74-0.37+0.0739-0.566)
+log(10)
+log(10-0.566)
+```
+
+```{r}
+library(Ecdat)
+skip_state<-c(3,9,10,22,21,23,31,33,48)
+Cigar<-Cigar%>%
+  filter(!state %in% skip_state,
+         year>=70)%>%
+  mutate(area=ifelse(state==5,"CA","Rest of US"))
+
+
+```
+```{r}
+Cigar %>%
+  mutate(period = if_else(year > 87, "after", "before"),
+         state = if_else(state == 5, "CA", "Rest of US")) %>%
+  group_by(period, state) %>%
+  summarise(sales = sum(sales*pop16)/sum(pop16)) %>%
+  spread(state, sales)
+
+## 前後比較のプロット
+Cigar %>%
+  mutate(period = if_else(year > 87, "after", "before"),
+         state = if_else(state == 5, "CA", "Rest of US")) %>%
+  group_by(period, state) %>%
+  summarise(sales = sum(sales*pop16)/sum(pop16)) %>%
+  ggplot(aes(y = sales,
+             x = period,
+             shape = state,
+             linetype = state)) +
+  geom_point(size = 2) +
+  geom_line(aes(group = state)) +
+  ylim(0, NA) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.position = "bottom",
+        plot.margin = margin(1,1,1,1, "cm")) +
+  scale_x_discrete(name ="Period",limits=c("before","after"))
+
+```
+
+```{r}
+glimpse(Cigar)
+```
+```{r}
+Cigar_did_sum<-Cigar%>%
+  mutate(post=ifelse(year>87,1,0),
+         ca=ifelse(area=="CA",1,0),
+         state=factor(state),
+         year_dummie=paste("D",year,sep = "_"))%>%
+  group_by(post,year,year_dummie,ca)%>%
+  summarise(sales=sum(sales*pop16)/sum(pop16))
+Cigar_did_sum
+```
+```{r}
+Cigar_did_sum_reg<-Cigar_did_sum%>%
+  lm(data=.,formula = sales~ca+post+ca:post+year_dummie)%>%
+  tidy()%>%
+  filter(term=="ca:post")
+Cigar_did_sum_reg
+```
+
+```{r}
+Cigar_did_sum_logreg<-Cigar_did_sum%>%
+  lm(data=.,
+     formula = log(sales)~ca+post+post:ca+year_dummie)%>%
+  tidy()%>%
+  filter(!str_detect(term,"year"))
+Cigar_did_sum_logreg
+```
+```{r}
+Cigar %>%
+  mutate(state = if_else(state == 5, "CA", "Rest of US")) %>%
+  group_by(year,state) %>%
+  summarise(sales = sum(sales*pop16)/sum(pop16)) %>%
+  ggplot(aes(y = sales,
+             x = year,
+             shape = state,
+             linetype = state)) +
+  geom_line() +
+  geom_point(size = 2) +
+  geom_vline(xintercept = 88, linetype = 4) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.position = "bottom",
+        plot.margin = margin(1,1,1,1, "cm"))
+```
+```{r}
+Cigar %>%
+  mutate(state = if_else(state == 5, "CA", "Rest of US")) %>%
+  group_by(year,state) %>%
+  summarise(sales = sum(sales*pop16)/sum(pop16))
+```
+```{r}
+Y<-Cigar%>% filter(state==5)%>% pull(sales)
+Y
+X_sales<-Cigar%>%
+  filter(state!=5)%>%
+  select(state,sales,year)%>%
+  spread(state,sales)
+
+X_sales  
+
+pre_period<-c(1:NROW(X_sales))[X_sales$year<88]
+post_period<-c(1:NROW(X_sales))[X_sales$year>=88]
+post_period
+
+CI_data<-cbind(Y,X_sales)%>%select(-year)
+
+CI_data
+```
+
+```{r}
+impact<-CausalImpact::CausalImpact(CI_data,
+                                  pre.period=c(min(pre_period),max(pre_period)),
+                                  post.period=c(min(post_period),max(post_period)))
+plot(impact)
+```
+```{r}
+impact
+```
+```{r}
+impact$series
+```
+
